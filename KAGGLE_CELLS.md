@@ -17,7 +17,7 @@ ABLATION_ONLY = ["T01", "T02"]  # doi sang T03/T04, T05/T06, roi T07 o cac versi
 
 ```python
 from pathlib import Path
-import shutil, subprocess, sys, tarfile, zipfile
+import shutil, subprocess, sys, tarfile
 
 work = Path("/kaggle/working")
 repo = work / "K4-Track4-Day2-Deeplearning-Advance"
@@ -25,24 +25,7 @@ if not repo.exists():
     subprocess.run(["git", "clone", "https://github.com/kentranpr4-crypto/K4-Track4-Day2-Deeplearning-Advance.git", str(repo)], check=True)
 
 assets = Path(ASSETS)
-code_root = assets / "starter_implemented_v3"
-if not code_root.exists():
-    matches = list(Path("/kaggle/input").rglob("starter_implemented_v3"))
-    matches += list(Path("/kaggle/input").rglob("starter_implemented_v3.zip"))
-    if not matches:
-        raise FileNotFoundError("Upload starter_implemented_v3.zip vao Kaggle Dataset va attach version moi")
-    code_root = matches[0]
-if code_root.is_file():
-    with zipfile.ZipFile(code_root) as archive:
-        archive.extractall(repo)
-else:
-    for path in (code_root / "starter").glob("*.py"):
-        shutil.copy2(path, repo / "starter" / path.name)
-    for path in (code_root / "tests").glob("*.py"):
-        shutil.copy2(path, repo / "tests" / path.name)
-    for name in ("package_submission.py", "KAGGLE_RUN.md"):
-        if (code_root / name).exists():
-            shutil.copy2(code_root / name, repo / name)
+print("Code commit:", subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], cwd=repo, text=True).strip())
 
 subprocess.run([sys.executable, "-m", "pip", "install", "-q", "timm", "thop", "fvcore", "scikit-learn", "openpyxl", "scipy"], check=True)
 data = repo / "data"
@@ -70,7 +53,7 @@ print("Images:", len(list(image_dir.glob("*.jpg"))))
 print("Previous state:", PREVIOUS_STATE)
 ```
 
-`starter_implemented_v3` co the la thu muc Kaggle tu giai nen zip hoac file `.zip`; Cell 2 xu ly ca hai. Cell setup se bao ro neu chua attach code/dataset.
+Code da duoc push len GitHub, nen Cell 2 clone ban moi va khong dung `starter_implemented_v3` cu de tranh ghi de workflow B03. Cell setup se bao ro neu chua attach dataset.
 
 ## Cell 3 - Test code va du lieu
 
