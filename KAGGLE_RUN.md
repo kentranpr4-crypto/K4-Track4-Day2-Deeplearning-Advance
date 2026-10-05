@@ -40,10 +40,10 @@ Neu Kaggle giu zip la file, thay ba lenh `cp` bang `!unzip -o <duong_dan_zip> -d
 !test -f data/labels/train_subset0.csv || git clone -q https://github.com/AlexOlsen/DeepWeeds.git /tmp/DeepWeeds
 !mkdir -p data/labels
 !test -f data/labels/train_subset0.csv || cp /tmp/DeepWeeds/labels/*.csv data/labels/
-!ls runs/B04/seed0/best.pt predictions/B04_seed0_val.csv
+!ls runs/B03/seed0/best.pt predictions/B03_seed0_val.csv
 ```
 
-Neu dong cuoi bao thieu file, can gan lai Output cua Kaggle version chua B04/B02/B03/B05 vao notebook va copy `runs/`, `predictions/` tu Output do. Kaggle session moi khong tu giu `/kaggle/working` cua session cu.
+Neu dong cuoi bao thieu file, can gan lai Output cua Kaggle version backbone vao notebook va copy `runs/`, `predictions/` tu Output do. Kaggle session moi khong tu giu `/kaggle/working` cua session cu.
 
 ## 3. EDA va profile backbone
 
@@ -56,10 +56,10 @@ Neu dong cuoi bao thieu file, can gan lai Output cua Kaggle version chua B04/B02
 
 ## 4. Ablation huan luyen
 
-Chay tren B04 (ViT Small, seed 0) voi cung epoch/batch/split. Script thu `T01` frozen, `T02` color, `T03` RandAugment, `T04` label smoothing, `T05` focal, `T06` class-weighted CE. Sau do `T07` ket hop augmentation va loss co macro-F1 validation cao nhat trong tung truc.
+Chay tren B03 (ConvNeXt Tiny, seed 0) voi cung epoch/batch/split. Script thu `T01` frozen, `T02` color, `T03` RandAugment, `T04` label smoothing, `T05` focal, `T06` class-weighted CE. Sau do `T07` ket hop augmentation va loss co macro-F1 validation cao nhat trong tung truc. Nen chia thanh 4 Kaggle version nhu `KAGGLE_CELLS.md` de luu state sau moi 1-2 run.
 
 ```python
-!PYTHONPATH=. python -u starter/run_ablation.py --images-dir data/images --labels-dir data/labels --backbone vit_small_patch16_224 --seed 0 --epochs 12 --batch-size 16 --num-workers 0
+!PYTHONPATH=. python -u starter/run_ablation.py --images-dir data/images --labels-dir data/labels --baseline-id B03 --backbone convnext_tiny --seed 0 --epochs 12 --batch-size 16 --num-workers 0 --only T01 T02
 ```
 
 Log in sau moi epoch va luu `history.csv`, `last.pt`, `best.pt`, `curves/`. Neu session ngat, khoi phuc Output vao cung duong dan va chay lai lenh; script bo qua prediction da xong va resume run dang do.
@@ -71,7 +71,7 @@ Log in sau moi epoch va luu `history.csv`, `last.pt`, `best.pt`, `curves/`. Neu 
 !cat selection_val.json
 ```
 
-Script chon recipe macro-F1 validation cao nhat trong B04/T01..T07, roi so sanh I00 1-view, I01 horizontal flip, I02 5-crop gop probability, I03 5-crop gop logit, I04 temperature scaling. Latency p50/p95/p99 do batch 1, 10 warmup, 50 lan. T chi khop tren val. `selection_val.json` la quyet dinh chot truoc khi dung test.
+Script chon recipe macro-F1 validation cao nhat trong B03/T01..T07, roi so sanh I00 1-view, I01 horizontal flip, I02 5-crop gop probability, I03 5-crop gop logit, I04 temperature scaling. Latency p50/p95/p99 do batch 1, 10 warmup, 50 lan. T chi khop tren val. `selection_val.json` la quyet dinh chot truoc khi dung test.
 
 ## 6. Chung ket 3 seed, test mot lan/seed
 

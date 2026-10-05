@@ -12,9 +12,10 @@ from run_ablation import score
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--baseline-id", default="B03")
     parser.add_argument("--measure-latency", action="store_true")
     args = parser.parse_args()
-    recipes = ("B04", "T01", "T02", "T03", "T04", "T05", "T06", "T07")
+    recipes = (args.baseline_id, "T01", "T02", "T03", "T04", "T05", "T06", "T07")
     missing = [exp for exp in recipes if not Path(f"predictions/{exp}_seed{args.seed}_val.csv").exists()]
     if missing:
         raise FileNotFoundError(f"Chưa đủ ablation validation: {missing}")

@@ -146,9 +146,9 @@ def collect(root: Path):
                 latency.append({"exp_id": data["exp_id"], "seed": data["seed"],
                                 "method": method, **timing})
     baseline = next((row["macro_f1_val"] for row in summary
-                     if row["exp_id"] == "B04" and row["seed"] == 0), None)
+                     if row["exp_id"] == "B03" and row["seed"] == 0), None)
     for row in training:
-        row["delta_macro_f1_vs_B04"] = (row["macro_f1_val"] - baseline
+        row["delta_macro_f1_vs_B03"] = (row["macro_f1_val"] - baseline
                                         if baseline is not None else None)
     if final:
         final_frame = pd.DataFrame(final)

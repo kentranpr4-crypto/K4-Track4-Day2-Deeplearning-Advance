@@ -10,6 +10,7 @@ Lan dau dung `STAGE = "backbones"`, `PREVIOUS_STATE = None`. Tu giai doan sau, a
 STAGE = "backbones"  # backbones | ablation | selection | final
 PREVIOUS_STATE = None  # vi du: "/kaggle/input/datasets/<owner>/<dataset>/lab_state.tar.gz"
 ASSETS = "/kaggle/input/datasets/anhtrangram/deepweeds-lab-assets"
+ABLATION_ONLY = ["T01", "T02"]  # doi sang T03/T04, T05/T06, roi T07 o cac version sau
 ```
 
 ## Cell 2 - Setup tu dau, khong phu thuoc session cu
@@ -119,11 +120,11 @@ if STAGE == "backbones":
 
 elif STAGE == "ablation":
     run_command("starter/run_ablation.py", "--images-dir", "data/images", "--labels-dir", "data/labels",
-                "--backbone", "vit_small_patch16_224", "--seed", "0", "--epochs", "12",
-                "--batch-size", "16", "--num-workers", "0")
+                "--baseline-id", "B03", "--backbone", "convnext_tiny", "--seed", "0",
+                "--epochs", "12", "--batch-size", "16", "--num-workers", "0", "--only", *ABLATION_ONLY)
 
 elif STAGE == "selection":
-    run_command("starter/select_final.py", "--seed", "0", "--measure-latency")
+    run_command("starter/select_final.py", "--seed", "0", "--baseline-id", "B03", "--measure-latency")
     print((repo / "selection_val.json").read_text())
 
 elif STAGE == "final":
@@ -140,6 +141,8 @@ else:
 ```
 
 Khong chay `final` truoc khi `selection` da hoan tat. Test chi dung o giai doan `final`.
+
+Voi ablation, chay 4 Kaggle version lien tiep, moi version deu phuc hoi `lab_state.tar.gz` cua version ngay truoc: `ABLATION_ONLY = ["T01", "T02"]`, tiep `T03/T04`, tiep `T05/T06`, cuoi `T07`. Baseline duoc chot tu val la B03 (ConvNeXt Tiny, macro-F1 0.9675 tren seed 0). Khong bo qua snapshot giua cac version.
 
 ## Cell 5 - Dong goi trang thai de chuyen sang version sau
 

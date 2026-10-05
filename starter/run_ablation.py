@@ -1,4 +1,4 @@
-"""Run controlled B04 ablations and a validation-selected combination."""
+"""Run controlled backbone ablations and a validation-selected combination."""
 from __future__ import annotations
 
 import argparse
@@ -36,21 +36,25 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--images-dir", required=True)
     parser.add_argument("--labels-dir", default="data/labels")
-    parser.add_argument("--backbone", default="vit_small_patch16_224")
+    parser.add_argument("--backbone", default="convnext_tiny")
+    parser.add_argument("--baseline-id", default="B03")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--epochs", type=int, default=12)
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--num-workers", type=int, default=0)
     parser.add_argument("--only", nargs="*", choices=[*EXPERIMENTS, "T07"])
     args = parser.parse_args()
-    baseline_path = Path(f"predictions/B04_seed{args.seed}_val.csv")
+    baseline_path = Path(f"predictions/{args.baseline_id}_seed{args.seed}_val.csv")
     if not baseline_path.exists():
-        raise FileNotFoundError(f"Cần B04 baseline cùng seed: {baseline_path}")
+        raise FileNotFoundError(f"Cần baseline cùng seed: {baseline_path}")
+    baseline_config = json.loads((Path("runs") / args.baseline_id / f"seed{args.seed}" / "config.json").read_text())
+    if baseline_config["backbone"] != args.backbone:
+        raise ValueError("Backbone ablation phải trùng với backbone baseline")
     selected = args.only or [*EXPERIMENTS, "T07"]
     common = dict(backbone=args.backbone, seed=args.seed, epochs=args.epochs,
                   batch_size=args.batch_size, num_workers=args.num_workers,
                   images_dir=args.images_dir, labels_dir=args.labels_dir)
-    records = [{"exp_id": "B04", "axis": "baseline", **score(baseline_path)}]
+    records = [{"exp_id": args.baseline_id, "axis": "baseline", **score(baseline_path)}]
     for exp_id, change in EXPERIMENTS.items():
         path = Path(f"predictions/{exp_id}_seed{args.seed}_val.csv")
         if exp_id in selected and not path.exists():
