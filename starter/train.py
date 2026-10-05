@@ -14,6 +14,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import sys
+import json
+import math
+import time
+from dataclasses import asdict, fields
+from typing import get_args, get_type_hints
+
+# Allow `python starter/train.py` to import eval.py from the project root.
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 # Ghi file dự đoán đúng định dạng bằng hàm có sẵn trong eval.py (repo gốc):
 #     from eval import save_predictions, compute_metrics
@@ -56,8 +67,10 @@ class Config:
     labels_dir: str = "data/labels"
     out_dir: str = "runs"             # config.json, history.csv, checkpoint, logit của từng lần chạy
     pred_dir: str = "predictions"     # file dự đoán đúng định dạng eval.py (nộp cùng bài)
+    curve_dir: str = "curves"
     # --- chỉ bật ở Bước 4 (chung kết): ghi predictions trên TEST. Mặc định TẮT (quy tắc S4). ---
     save_test_predictions: bool = False
+    resume: bool = False
 
 
 def run_dir(cfg: Config) -> Path:
@@ -76,12 +89,24 @@ def set_seed(seed: int) -> None:
     TODO: random, numpy, torch (CPU và CUDA); cân nhắc cudnn.deterministic/benchmark và
     seed cho worker của DataLoader. Ghi lại trong báo cáo mức độ tái lập bạn đạt được.
     """
-    raise NotImplementedError("TODO")
+    import random, numpy as np, torch
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 
 def build_optimizer(model, cfg: Config):
     """AdamW với 3 nhóm tham số (xem model.param_groups). TODO."""
-    raise NotImplementedError("TODO")
+    try:
+        from . import model as mm
+    except ImportError:
+        import model as mm
+    import torch
+    return torch.optim.AdamW(mm.param_groups(model,cfg.lr_backbone,cfg.lr_head,cfg.weight_decay))
 
 
 def build_scheduler(optimizer, cfg: Config, steps_per_epoch: int):
@@ -90,7 +115,12 @@ def build_scheduler(optimizer, cfg: Config, steps_per_epoch: int):
     Cập nhật theo bước (iteration) hoặc theo epoch đều được; ghi rõ bạn chọn gì.
     Gợi ý kiểm tra: vẽ đường LR theo bước để thấy đúng hình warmup + cosine.
     """
-    raise NotImplementedError("TODO")
+    import torch
+    total=max(1,cfg.epochs*steps_per_epoch); warm=max(0,int(cfg.warmup_epochs*steps_per_epoch))
+    def f(step):
+        if step < warm: return float(step+1)/max(1,warm)
+        q=min(1.0,(step-warm)/max(1,total-warm)); return 0.5*(1+math.cos(math.pi*q))
+    return torch.optim.lr_scheduler.LambdaLR(optimizer,f)
 
 
 class EMA:
@@ -104,10 +134,18 @@ class EMA:
     """
 
     def __init__(self, model, decay: float):
-        raise NotImplementedError("TODO")
+        import copy
+        if not 0 < decay < 1:
+            raise ValueError("ema_decay phải nằm trong (0, 1)")
+        self.decay=float(decay); self.shadow=copy.deepcopy(model).eval()
+        for p in self.shadow.parameters(): p.requires_grad=False
 
     def update(self, model) -> None:
-        raise NotImplementedError("TODO")
+        with __import__('torch').no_grad():
+            for a,b in zip(self.shadow.parameters(), model.parameters()): a.mul_(self.decay).add_(b.detach(), alpha=1-self.decay)
+            for a,b in zip(self.shadow.buffers(), model.buffers()): a.copy_(b)
+    def copy_to(self, model):
+        model.load_state_dict(self.shadow.state_dict())
 
 
 def train_one_epoch(model, loader, criterion, optimizer, scheduler, scaler, cfg: Config,
@@ -120,7 +158,36 @@ def train_one_epoch(model, loader, criterion, optimizer, scheduler, scaler, cfg:
       - AMP (autocast + GradScaler), clip gradient nếu cần, optimizer.step(), scheduler.step()
       - nếu có EMA: ema.update(model)
     """
-    raise NotImplementedError("TODO")
+    import torch
+    try:
+        from .losses import mix_batch, mixed_loss
+    except ImportError:
+        from losses import mix_batch, mixed_loss
+    model.train(); total=0; n=0
+    if cfg.init == "frozen":
+        model.eval()
+        classifier=model.get_classifier() if hasattr(model,"get_classifier") else None
+        if classifier is not None:
+            classifier.train()
+    for x,y,_ in loader:
+        x=x.to(device); y=y.to(device); optimizer.zero_grad(set_to_none=True)
+        mixed=None
+        if cfg.mix: x,mixed=mix_batch(x,y,cfg.mix_alpha,cfg.mix)
+        with torch.autocast(device_type=device.type, enabled=bool(cfg.amp and device.type=="cuda")):
+            logits=model(x); loss=mixed_loss(criterion,logits,mixed) if mixed else criterion(logits,y)
+        if not torch.isfinite(loss):
+            raise ValueError(f"train loss không hữu hạn: {loss.item()}")
+        if scaler is not None and scaler.is_enabled():
+            scale_before=scaler.get_scale()
+            scaler.scale(loss).backward(); scaler.step(optimizer); scaler.update()
+            stepped=scaler.get_scale() >= scale_before
+        else:
+            loss.backward(); optimizer.step(); stepped=True
+        if stepped:
+            if scheduler is not None: scheduler.step()
+            if ema: ema.update(model)
+        total += float(loss.detach())*len(y); n += len(y)
+    return {"train_loss":total/max(1,n),"lr":optimizer.param_groups[0]["lr"]}
 
 
 def evaluate(model, loader, criterion, device):
@@ -131,7 +198,13 @@ def evaluate(model, loader, criterion, device):
 
     TODO: model.eval(), torch.inference_mode(), gom kết quả. Softmax khi cần xác suất.
     """
-    raise NotImplementedError("TODO")
+    import numpy as np, torch
+    model.eval(); names=[]; ys=[]; zs=[]; total=0; n=0
+    with torch.inference_mode():
+        for x,y,fn in loader:
+            z=model(x.to(device)); loss=criterion(z,y.to(device))
+            total += float(loss)*len(y); n += len(y); names.extend(fn); ys.extend(y.numpy()); zs.append(z.cpu().numpy())
+    return names,np.asarray(ys),np.concatenate(zs),total/max(1,n)
 
 
 def plot_curves(history: list[dict], path: str | Path, title: str) -> None:
@@ -140,7 +213,9 @@ def plot_curves(history: list[dict], path: str | Path, title: str) -> None:
     TODO: tối thiểu loss train/val và macro-F1 val theo epoch; có tiêu đề, nhãn trục, chú thích;
     khuyến khích thêm LR theo bước. Lưu bằng matplotlib với dpi đủ nét để đọc số.
     """
-    raise NotImplementedError("TODO")
+    import matplotlib.pyplot as plt
+    df=__import__('pandas').DataFrame(history); fig,ax=plt.subplots(1,2,figsize=(11,4));
+    ax[0].plot(df.epoch,df.train_loss,label="train"); ax[0].plot(df.epoch,df.val_loss,label="val"); ax[0].set_title(title); ax[0].set_xlabel("epoch"); ax[0].legend(); ax[1].plot(df.epoch,df.val_macro_f1,label="val macro-F1"); ax[1].legend(); fig.tight_layout(); Path(path).parent.mkdir(parents=True,exist_ok=True); fig.savefig(path,dpi=150); plt.close(fig)
 
 
 def run(cfg: Config) -> dict:
@@ -160,7 +235,94 @@ def run(cfg: Config) -> dict:
          (best_epoch, macro-F1 val, thời gian train mỗi epoch, số tham số, GMAC)
     Quy tắc: KHÔNG dùng test để chọn checkpoint hay bất kỳ quyết định nào (README.md, S4).
     """
-    raise NotImplementedError("TODO")
+    import numpy as np
+    import torch, pandas as pd, timm, torchvision
+    try:
+        from . import dataset as ds, model as mm, losses
+    except ImportError:
+        import dataset as ds, model as mm, losses
+    from eval import compute_metrics, save_predictions
+    if cfg.epochs < 1 or cfg.batch_size < 1:
+        raise ValueError("epochs và batch_size phải dương")
+    if cfg.save_test_predictions and pred_path(cfg,"test").exists():
+        raise FileExistsError(f"Test prediction đã tồn tại: {pred_path(cfg, 'test')}")
+    rd=run_dir(cfg); rd.mkdir(parents=True,exist_ok=True)
+    config_path=rd/"config.json"
+    if cfg.resume:
+        if not config_path.exists() or not (rd/"last.pt").exists():
+            raise FileNotFoundError(f"Không có checkpoint để resume trong {rd}")
+        previous=json.loads(config_path.read_text()); previous.pop("resume",None)
+        current=asdict(cfg); current.pop("resume",None)
+        if previous != current:
+            raise ValueError("Cấu hình resume khác cấu hình đã lưu")
+    set_seed(cfg.seed)
+    config_path.write_text(json.dumps(asdict(cfg),indent=2))
+    (rd/"versions.json").write_text(json.dumps({"torch":torch.__version__,"torchvision":torchvision.__version__,"timm":timm.__version__},indent=2))
+    print(f"[{cfg.exp_id} seed={cfg.seed}] loading data and model {cfg.backbone}", flush=True)
+    train_df,val_df,test_df=ds.load_split(cfg.labels_dir,cfg.fold)
+    split_stats=ds.check_split(train_df,val_df,test_df,cfg.images_dir)
+    (rd/"split_stats.json").write_text(json.dumps(split_stats,indent=2))
+    tr=ds.make_loader(train_df,cfg.images_dir,ds.build_transforms(True,cfg.img_size,cfg.aug),cfg.batch_size,True,cfg.sampler,cfg.num_workers)
+    eval_transform=ds.build_transforms(False,cfg.img_size,cfg.aug)
+    va=ds.make_loader(val_df,cfg.images_dir,eval_transform,cfg.batch_size,False,None,cfg.num_workers)
+    device=torch.device("cuda" if torch.cuda.is_available() else "cpu"); net=mm.build_model(cfg.backbone,True,9,cfg.drop_rate,cfg.init).to(device)
+    (rd/"pretrained_tag.json").write_text(json.dumps(getattr(net,"pretrained_cfg",{}),default=str,indent=2))
+    weight=None
+    if cfg.loss=="ce_weighted":
+        counts=train_df["Label"].value_counts().reindex(range(9),fill_value=0).to_numpy()
+        weight=losses.class_weights(counts,cfg.class_weight_beta or 0).to(device)
+    criterion=losses.build_criterion(cfg.loss,smoothing=cfg.label_smoothing,gamma=cfg.focal_gamma,weight=weight)
+    opt=build_optimizer(net,cfg); sch=build_scheduler(opt,cfg,len(tr))
+    scaler=torch.amp.GradScaler("cuda",enabled=cfg.amp and device.type=="cuda")
+    ema=EMA(net,cfg.ema_decay) if cfg.ema_decay is not None else None
+    best=-1; best_epoch=0; hist=[]; start_epoch=0; t0=time.perf_counter()
+    if cfg.resume:
+        saved=torch.load(rd/"last.pt",map_location=device,weights_only=False)
+        net.load_state_dict(saved["model"]); opt.load_state_dict(saved["optimizer"])
+        sch.load_state_dict(saved["scheduler"]); scaler.load_state_dict(saved["scaler"])
+        if ema: ema.shadow.load_state_dict(saved["ema"])
+        best=saved["best"]; best_epoch=saved["best_epoch"]
+        hist=saved["history"]; start_epoch=saved["epoch"]
+    print(f"[{cfg.exp_id} seed={cfg.seed}] start training: {cfg.epochs} epochs, {len(tr)} batches/epoch, device={device}, from epoch={start_epoch+1}", flush=True)
+    for epoch in range(start_epoch,cfg.epochs):
+        epoch_start=time.perf_counter()
+        a=train_one_epoch(net,tr,criterion,opt,sch,scaler,cfg,device,ema)
+        eval_model=ema.shadow if ema else net
+        _,y,z,vl=evaluate(eval_model,va,criterion,device)
+        shifted=z-z.max(1,keepdims=True); p=np.exp(shifted); p/=p.sum(1,keepdims=True)
+        m=compute_metrics(y,p.argmax(1),p)
+        rec={"epoch":epoch+1,"val_loss":vl,"val_macro_f1":m["macro_f1"],"val_top1":m["top1"],**a}; hist.append(rec)
+        if m["macro_f1"]>best:
+            best=m["macro_f1"]; best_epoch=epoch+1
+            torch.save(eval_model.state_dict(),rd/"best.pt")
+        rec["epoch_seconds"]=time.perf_counter()-epoch_start
+        torch.save({"model":net.state_dict(),"optimizer":opt.state_dict(),"scheduler":sch.state_dict(),
+                    "scaler":scaler.state_dict(),"ema":ema.shadow.state_dict() if ema else None,
+                    "epoch":epoch+1,"best":best,"best_epoch":best_epoch,"history":hist},rd/"last.pt")
+        pd.DataFrame(hist).to_csv(rd/"history.csv",index=False)
+        plot_curves(hist,Path(cfg.curve_dir)/f"{cfg.exp_id}_seed{cfg.seed}_{cfg.backbone}.png",f"{cfg.exp_id} seed {cfg.seed} - {cfg.backbone}")
+        print(f"[{cfg.exp_id} seed={cfg.seed}] epoch {epoch+1}/{cfg.epochs}: train_loss={a['train_loss']:.4f} val_loss={vl:.4f} val_macro_f1={m['macro_f1']:.4f} best={best:.4f} time={rec['epoch_seconds']:.1f}s", flush=True)
+    net.load_state_dict(torch.load(rd/"best.pt",map_location=device,weights_only=True))
+    names,y,z,_=evaluate(net,va,criterion,device)
+    np.save(rd/"val_logits.npy",z)
+    shifted=z-z.max(1,keepdims=True); p=np.exp(shifted); p/=p.sum(1,keepdims=True)
+    save_predictions(pred_path(cfg,"val"),names,y,p)
+    if cfg.save_test_predictions:
+        te=ds.make_loader(test_df,cfg.images_dir,eval_transform,cfg.batch_size,False,None,cfg.num_workers)
+        names,y,z,_=evaluate(net,te,criterion,device)
+        np.save(rd/"test_logits.npy",z)
+        shifted=z-z.max(1,keepdims=True); p=np.exp(shifted); p/=p.sum(1,keepdims=True)
+        save_predictions(pred_path(cfg,"test"),names,y,p)
+    try:
+        gmac=mm.count_gmacs(net,cfg.img_size)
+    except Exception as exc:
+        gmac=None
+        print(f"GMAC chưa đo được: {exc}",flush=True)
+    result={"exp_id":cfg.exp_id,"seed":cfg.seed,"best_epoch":best_epoch,
+            "macro_f1_val":best,"train_seconds":time.perf_counter()-t0,
+            "params_m":mm.count_params(net),"gmac":gmac}
+    (rd/"summary.json").write_text(json.dumps(result,indent=2))
+    return result
 
 
 def parse_overrides(pairs: list[str]) -> dict:
@@ -168,7 +330,24 @@ def parse_overrides(pairs: list[str]) -> dict:
 
     TODO: tách key/value, báo lỗi rõ nếu key không có trong Config, ép int/float/bool/None theo kiểu field.
     """
-    raise NotImplementedError("TODO")
+    types=get_type_hints(Config)
+    allowed={f.name for f in fields(Config)}
+    out={}
+    for item in pairs:
+        if "=" not in item: raise ValueError(f"override không hợp lệ: {item}")
+        k,v=item.split("=",1)
+        if k not in allowed: raise ValueError(f"Config không có trường {k}")
+        possible=get_args(types[k]) or (types[k],)
+        if v.lower()=="none":
+            if type(None) not in possible: raise ValueError(f"{k} không nhận None")
+            out[k]=None
+        elif bool in possible:
+            if v.lower() not in {"true","false"}: raise ValueError(f"{k} phải là true hoặc false")
+            out[k]=v.lower()=="true"
+        elif int in possible: out[k]=int(v)
+        elif float in possible: out[k]=float(v)
+        else: out[k]=v
+    return out
 
 
 def main() -> None:
@@ -176,7 +355,8 @@ def main() -> None:
 
     TODO: argparse nhận `--set KEY=VALUE ...`, dựng Config qua parse_overrides, gọi run(cfg), in kết quả.
     """
-    raise NotImplementedError("TODO")
+    import argparse
+    ap=argparse.ArgumentParser(); ap.add_argument("--set",nargs="*",default=[]); args=ap.parse_args(); cfg=Config(**parse_overrides(args.set)); print(run(cfg))
 
 
 if __name__ == "__main__":

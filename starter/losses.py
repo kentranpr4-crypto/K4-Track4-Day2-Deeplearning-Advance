@@ -18,21 +18,32 @@ def build_criterion(kind: str = "ce", **kw):
     Ví dụ kw: smoothing=0.1, gamma=2.0, alpha=None, weight=tensor.
     TODO: tạo đúng loss, hoặc gọi các lớp bên dưới.
     """
-    raise NotImplementedError("TODO")
+    import torch.nn as nn
+    kind = kind.lower()
+    if kind == "ce": return nn.CrossEntropyLoss(weight=kw.get("weight"))
+    if kind == "ls": return LabelSmoothingCE(kw.get("smoothing", 0.1), kw.get("weight"))
+    if kind == "focal": return FocalLoss(kw.get("gamma", 2.0), kw.get("alpha"))
+    if kind == "ce_weighted":
+        if kw.get("weight") is None: raise ValueError("ce_weighted cần weight từ tập train")
+        return nn.CrossEntropyLoss(weight=kw["weight"])
+    raise ValueError(f"loss không hợp lệ: {kind}")
 
 
-class LabelSmoothingCE:  # TODO: kế thừa torch.nn.Module
+class LabelSmoothingCE:
     """Cross-entropy với label smoothing: q'(k) = (1 - eps) * 1[k == y] + eps / K  (slide trang 56).
 
     TODO: tự cài đặt hoặc dùng torch.nn.CrossEntropyLoss(label_smoothing=eps), rồi ghi rõ
     bạn đã chọn cách nào. Kiểm tra: eps = 0 phải cho đúng CE.
     """
 
-    def __init__(self, smoothing: float = 0.1):
-        raise NotImplementedError("TODO")
+    def __init__(self, smoothing: float = 0.1, weight=None):
+        import torch.nn as nn
+        self.loss = nn.CrossEntropyLoss(label_smoothing=smoothing, weight=weight)
+    def __call__(self, logits, target): return self.loss(logits, target)
+    def parameters(self): return self.loss.parameters()
 
 
-class FocalLoss:  # TODO: kế thừa torch.nn.Module
+class FocalLoss:
     """Focal loss nhiều lớp: FL(p_t) = -alpha_t * (1 - p_t)^gamma * log(p_t)  (slide trang 57).
 
     TODO:
@@ -42,7 +53,18 @@ class FocalLoss:  # TODO: kế thừa torch.nn.Module
     """
 
     def __init__(self, gamma: float = 2.0, alpha=None):
-        raise NotImplementedError("TODO")
+        import torch
+        self.gamma = float(gamma)
+        self.alpha = None if alpha is None else torch.as_tensor(alpha, dtype=torch.float32)
+    def __call__(self, logits, target):
+        import torch
+        import torch.nn.functional as F
+        logp = F.log_softmax(logits, dim=1).gather(1, target[:, None]).squeeze(1)
+        pt = logp.exp()
+        loss = -((1 - pt) ** self.gamma) * logp
+        if self.alpha is not None:
+            loss = loss * self.alpha.to(logits.device)[target]
+        return loss.mean()
 
 
 def class_weights(counts, beta: float = 0.0):
@@ -54,7 +76,11 @@ def class_weights(counts, beta: float = 0.0):
 
     TODO: trả về tensor độ dài 9. Chỉ dùng số liệu của train, không dùng val hay test.
     """
-    raise NotImplementedError("TODO")
+    import torch
+    n = torch.as_tensor(counts, dtype=torch.float64).clamp_min(1)
+    if beta == 0: w = 1.0 / n
+    else: w = (1 - beta) / (1 - torch.pow(torch.tensor(beta, dtype=n.dtype), n))
+    return (w / w.mean()).float()
 
 
 def mix_batch(x, y, alpha: float = 1.0, mode: str = "cutmix"):
@@ -68,7 +94,21 @@ def mix_batch(x, y, alpha: float = 1.0, mode: str = "cutmix"):
 
     TODO: tự cài đặt. Kiểm tra bằng mắt: vẽ vài ảnh sau khi trộn và in lam.
     """
-    raise NotImplementedError("TODO")
+    import numpy as np
+    import torch
+    if alpha <= 0: raise ValueError("alpha phải > 0")
+    if mode not in {"mixup", "cutmix"}: raise ValueError("mode phải là mixup hoặc cutmix")
+    perm = torch.randperm(x.size(0), device=x.device)
+    lam = float(np.random.beta(alpha, alpha))
+    y_a, y_b = y, y[perm]
+    if mode == "mixup": return lam * x + (1 - lam) * x[perm], (y_a, y_b, lam)
+    h, w = x.shape[-2:]
+    cut_h = max(1, int(h * (1 - lam) ** 0.5)); cut_w = max(1, int(w * (1 - lam) ** 0.5))
+    cy = np.random.randint(h); cx = np.random.randint(w)
+    y1, y2 = max(0, cy-cut_h//2), min(h, cy+cut_h//2); x1, x2 = max(0, cx-cut_w//2), min(w, cx+cut_w//2)
+    mixed = x.clone(); mixed[:, :, y1:y2, x1:x2] = x[perm, :, y1:y2, x1:x2]
+    lam = 1 - ((y2-y1)*(x2-x1)/(h*w))
+    return mixed, (y_a, y_b, float(lam))
 
 
 def mixed_loss(criterion, logits, targets):
@@ -76,4 +116,5 @@ def mixed_loss(criterion, logits, targets):
 
     TODO. Lưu ý: accuracy trên batch đã trộn không còn nghĩa bình thường; đánh giá bằng val.
     """
-    raise NotImplementedError("TODO")
+    y_a, y_b, lam = targets
+    return lam * criterion(logits, y_a) + (1 - lam) * criterion(logits, y_b)
