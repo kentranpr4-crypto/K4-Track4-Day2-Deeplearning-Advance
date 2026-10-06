@@ -75,6 +75,27 @@ def make_test_figures(root: Path):
     plt.close(fig)
 
 
+def make_tradeoff_figure(root: Path, rows: list[dict]):
+    if not rows:
+        return
+    import matplotlib.pyplot as plt
+
+    figures = root / "figures"
+    figures.mkdir(exist_ok=True)
+    fig, ax = plt.subplots(figsize=(8, 5))
+    for row in rows:
+        if row.get("p95_ms") is None:
+            continue
+        ax.scatter(row["p95_ms"], row["macro_f1_val"], s=55)
+        ax.annotate(row["method"].split("_")[0], (row["p95_ms"], row["macro_f1_val"]),
+                    xytext=(5, 4), textcoords="offset points")
+    ax.set(xlabel="p95 forward latency, batch 1 (ms)", ylabel="Validation macro-F1",
+           title="Inference quality and latency on Tesla T4")
+    ax.grid(alpha=0.25)
+    fig.tight_layout()
+    fig.savefig(figures / "inference_tradeoff.png", dpi=160)
+    plt.close(fig)
+
 def collect(root: Path):
     backbones, training, final, per_class, latency, inference, summary = [], [], [], [], [], [], []
     runs = root / "runs"
@@ -115,7 +136,7 @@ def collect(root: Path):
                   "latency_batch1_ms": (profile.get("latency") or {}).get("p50"),
                   "train_seconds_per_epoch": history.epoch_seconds.mean() if "epoch_seconds" in history else None}
         summary.append({**common, "ece_val": val["ece"]})
-        if exp_id.startswith("B") or exp_id == "T00":
+        if exp_id.startswith("B"):
             backbones.append({**common, "pretrained_tag": tag, "img_size": cfg["img_size"],
                               "epochs": cfg["epochs"]})
         if exp_id.startswith("T"):
@@ -125,14 +146,18 @@ def collect(root: Path):
         test_path = predictions / f"{exp_id}_seed{seed}_test.csv"
         if test_path.exists():
             test = _prediction_metrics(test_path)
+            inference_path = run_dir / "final_inference.json"
+            method = json.loads(inference_path.read_text()).get("method") if inference_path.exists() else None
             final.append({**common, "macro_f1_test": test["macro_f1"],
-                          "top1_test": test["top1"], "ece_test": test["ece"]})
+                          "top1_test": test["top1"], "ece_test": test["ece"],
+                          "inference_method": method})
             for index, name in enumerate(CLASS_NAMES):
                 per_class.append({"exp_id": exp_id, "seed": seed, "class": name,
                     "support": int(test["support"][index]), "precision": test["precision"][index],
                     "recall": test["recall"][index], "f1": test["f1"][index]})
     for path in sorted((root / "inference_out").glob("*_val_inference.json")):
         data = json.loads(path.read_text())
+        baseline_p50 = (data["methods"].get("I00_one_view", {}).get("latency") or {}).get("p50")
         for method, record in data["methods"].items():
             metrics = record["metrics"]
             timing = record.get("latency") or {}
@@ -141,7 +166,10 @@ def collect(root: Path):
                 "top1_val": metrics["top1"], "ece_val": metrics["ece"],
                 "k": timing.get("k_views", 1), "p50_ms": timing.get("p50"),
                 "p95_ms": timing.get("p95"), "p99_ms": timing.get("p99"),
-                "images_per_s": timing.get("images_per_s")})
+                "images_per_s": timing.get("images_per_s"),
+                "relative_p50": timing.get("p50") / baseline_p50 if timing.get("p50") and baseline_p50 else None,
+                "gpu": timing.get("gpu"), "dtype": timing.get("dtype"),
+                "batch": timing.get("batch"), "preprocessing_included": False})
             if timing:
                 latency.append({"exp_id": data["exp_id"], "seed": data["seed"],
                                 "method": method, **timing})
@@ -160,6 +188,16 @@ def collect(root: Path):
                 avg, std = mean_std(group[field].tolist())
                 aggregate[field] = f"{avg:.4f} +/- {std:.4f}"
             final.append(aggregate)
+        class_frame = pd.DataFrame(per_class)
+        for (exp_id, class_name), group in class_frame.groupby(["exp_id", "class"]):
+            if len(group) < 2:
+                continue
+            aggregate = {"exp_id": exp_id, "seed": "mean +/- std", "class": class_name,
+                         "support": int(group["support"].iloc[0])}
+            for field in ("precision", "recall", "f1"):
+                avg, std = mean_std(group[field].tolist())
+                aggregate[field] = f"{avg:.4f} +/- {std:.4f}"
+            per_class.append(aggregate)
     return {"Backbones": backbones, "Training": training, "Inference": inference,
             "Final": final, "PerClass": per_class, "Latency": latency,
             "Summary": sorted(summary, key=lambda row: row["macro_f1_val"], reverse=True)[:10]}
@@ -218,6 +256,7 @@ def main():
     args = parser.parse_args()
     sheets = collect(args.root)
     make_test_figures(args.root)
+    make_tradeoff_figure(args.root, sheets["Inference"])
     with pd.ExcelWriter(args.xlsx, engine="openpyxl") as writer:
         for name, rows in sheets.items():
             frame = pd.DataFrame(rows)
