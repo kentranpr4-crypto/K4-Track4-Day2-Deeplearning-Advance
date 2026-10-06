@@ -1,0 +1,9 @@
+{
+  "exp_id": "T04",
+  "seed": 0,
+  "best_epoch": 11,
+  "macro_f1_val": 0.9614439386240947,
+  "train_seconds": 1966.403029831,
+  "params_m": 27.827049,
+  "gmac": null
+}
