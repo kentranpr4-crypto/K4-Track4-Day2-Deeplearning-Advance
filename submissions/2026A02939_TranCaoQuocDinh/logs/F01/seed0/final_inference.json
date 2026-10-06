@@ -1,0 +1,5 @@
+{
+  "method": "I02_five_crop_prob",
+  "temperature": null,
+  "test_prediction": "predictions/F01_seed0_test.csv"
+}

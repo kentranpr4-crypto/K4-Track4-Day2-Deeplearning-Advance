@@ -1,0 +1,9 @@
+{
+  "recipe": "B03",
+  "method": "I02_five_crop_prob",
+  "seeds": [
+    0,
+    1,
+    2
+  ]
+}

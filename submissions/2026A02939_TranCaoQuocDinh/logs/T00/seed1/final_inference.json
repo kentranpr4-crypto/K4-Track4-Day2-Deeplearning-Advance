@@ -1,0 +1,5 @@
+{
+  "method": "I00_one_view",
+  "temperature": null,
+  "test_prediction": "predictions/T00_seed1_test.csv"
+}

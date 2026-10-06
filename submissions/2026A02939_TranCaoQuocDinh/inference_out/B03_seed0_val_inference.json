@@ -1,0 +1,126 @@
+{
+  "exp_id": "B03",
+  "seed": 0,
+  "temperature": 1.7457407304446588,
+  "split": "val",
+  "methods": {
+    "I00_one_view": {
+      "metrics": {
+        "top1": 0.9745786918023421,
+        "macro_f1": 0.9675194506742736,
+        "balanced_acc": 0.9609010702262167,
+        "ece": 0.016456947296696136,
+        "nll": 0.1252153217792511
+      },
+      "latency": {
+        "p50": 5.988715999933447,
+        "p95": 9.384225549945313,
+        "p99": 9.485997240001325,
+        "mean": 6.402375960001336,
+        "n": 50,
+        "gpu": "Tesla T4",
+        "dtype": "fp32",
+        "batch": 1,
+        "img_size": 224,
+        "images_per_s": 166.98070170819807,
+        "torch": "2.11.0+cu128"
+      },
+      "prediction": "inference_out/B03_I00_one_view_seed0_val.csv"
+    },
+    "I01_hflip": {
+      "metrics": {
+        "top1": 0.9748643244787204,
+        "macro_f1": 0.967661915407397,
+        "balanced_acc": 0.96150070919768,
+        "ece": 0.014358414748299977,
+        "nll": 0.11289679259061813
+      },
+      "latency": {
+        "p50": 11.43984850000379,
+        "p95": 12.041956750067584,
+        "p99": 13.200840340066403,
+        "mean": 11.493704039999102,
+        "n": 50,
+        "gpu": "Tesla T4",
+        "dtype": "fp32",
+        "batch": 1,
+        "img_size": 224,
+        "k_views": 2,
+        "images_per_s": 87.4137450333952,
+        "torch": "2.11.0+cu128"
+      },
+      "prediction": "inference_out/B03_I01_hflip_seed0_val.csv"
+    },
+    "I02_five_crop_prob": {
+      "metrics": {
+        "top1": 0.9754355898314767,
+        "macro_f1": 0.9683727505759845,
+        "balanced_acc": 0.9614784098992248,
+        "ece": 0.012844421844147417,
+        "nll": 0.1105792298913002
+      },
+      "latency": {
+        "p50": 31.370051999942916,
+        "p95": 32.61622495000438,
+        "p99": 34.64449641008514,
+        "mean": 31.519352579998667,
+        "n": 50,
+        "gpu": "Tesla T4",
+        "dtype": "fp32",
+        "batch": 1,
+        "img_size": 224,
+        "k_views": 5,
+        "images_per_s": 31.877537212938623,
+        "torch": "2.11.0+cu128"
+      },
+      "prediction": "inference_out/B03_I02_five_crop_prob_seed0_val.csv"
+    },
+    "I03_five_crop_logit": {
+      "metrics": {
+        "top1": 0.9754355898314767,
+        "macro_f1": 0.9683727505759845,
+        "balanced_acc": 0.9614784098992248,
+        "ece": 0.013608896036006433,
+        "nll": 0.11733946949243546
+      },
+      "latency": {
+        "p50": 31.370051999942916,
+        "p95": 32.61622495000438,
+        "p99": 34.64449641008514,
+        "mean": 31.519352579998667,
+        "n": 50,
+        "gpu": "Tesla T4",
+        "dtype": "fp32",
+        "batch": 1,
+        "img_size": 224,
+        "k_views": 5,
+        "images_per_s": 31.877537212938623,
+        "torch": "2.11.0+cu128"
+      },
+      "prediction": "inference_out/B03_I03_five_crop_logit_seed0_val.csv"
+    },
+    "I04_temperature": {
+      "metrics": {
+        "top1": 0.9745786918023421,
+        "macro_f1": 0.9675194506742736,
+        "balanced_acc": 0.9609010702262167,
+        "ece": 0.007525448749826508,
+        "nll": 0.09642177407459272
+      },
+      "latency": {
+        "p50": 5.988715999933447,
+        "p95": 9.384225549945313,
+        "p99": 9.485997240001325,
+        "mean": 6.402375960001336,
+        "n": 50,
+        "gpu": "Tesla T4",
+        "dtype": "fp32",
+        "batch": 1,
+        "img_size": 224,
+        "images_per_s": 166.98070170819807,
+        "torch": "2.11.0+cu128"
+      },
+      "prediction": "inference_out/B03_I04_temperature_seed0_val.csv"
+    }
+  }
+}
