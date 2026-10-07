@@ -31,6 +31,10 @@ Các backbone chạy trên cùng fold, seed và công thức nền; tag pretrain
 
 `B03` được chọn cho ablation vì có macro-F1 validation cao nhất, dù có nhiều tham số hơn. GMAC thấp không bảo đảm latency thấp: EfficientNet-B0 chỉ 0,38 GMAC nhưng p50 8,13 ms trên T4, chậm hơn `B03` trong phép đo forward này. Đây là kết quả một seed; thứ hạng kiến trúc còn bị ảnh hưởng bởi **tag trọng số pretrained khác nhau** (ConvNeXt/ViT được fine-tune từ tập tiền huấn luyện lớn hơn), nên không thể quy toàn bộ chênh lệch cho kiến trúc.
 
+![So sánh backbone theo độ trễ và số tham số](figures/backbone_tradeoff.png)
+
+Các đường cong trong `curves/` cho thấy ResNet50 tăng macro-F1 val từ 0,4466 lên 0,8712, còn ConvNeXt Tiny từ 0,7987 lên 0,9675. Ở ConvNeXt, train loss giảm gần 0 nhưng val loss vẫn khoảng 0,125, cho thấy khoảng cách train/val và nhu cầu theo dõi quá khớp. Epoch cuối không luôn tốt nhất: B01, B02, B03 và B05 đều lấy checkpoint epoch 11 thay vì epoch 12.
+
 ## Ablation công thức huấn luyện
 
 Mỗi thí nghiệm giữ `B03` làm nền và đổi một yếu tố, cùng seed 0, 12 epoch, batch 16. Trục khởi tạo dùng `finetune` so với `frozen`; trục augmentation dùng `basic`, `color`, `RandAugment`; trục loss dùng CE, label smoothing, focal và CE trọng số lớp. `T07` ghép `color` và focal, là hai biến thể có điểm cao nhất *trong từng trục*, nhằm kiểm tra tương tác.
@@ -81,12 +85,19 @@ F01 đạt recall test trung bình **0,938 ± 0,008** cho Chinee apple và **0,9
 
 ![Ví dụ dự đoán sai, F01 seed 0](figures/error_examples_F01.png)
 
-Một giả thuyết cần kiểm chứng bằng gán nhãn vùng ảnh: cá thể cỏ nhỏ hoặc lẫn nền cây khác có thể khiến mẫu bị dự đoán là Negative; hình dáng/lá tương tự giữa các loài có thể gây nhầm lẫn. Ảnh lỗi minh họa chưa chứng minh nguyên nhân. Điểm tự chấm phần I từ `eval.py grade` là **18/18 ý chấm được**, còn I4a và I4b chưa chấm được: không có prediction test cùng cấu hình trước/sau temperature scaling, và không có validation 5-crop đủ ba seed.
+Trong ảnh lỗi seed 0, nhiều mẫu Chinee apple/Snake weed bị đoán là Negative có lá lẫn trong nền dày, cành khô hoặc màu ảnh ngả tím. Một mẫu Snake weed bị đoán thành Lantana có tán lá chồng lấp. Đây là quan sát trực quan; giả thuyết về ảnh hưởng của nền và màu cần kiểm chứng bằng gán nhãn vùng ảnh hoặc thử nghiệm độc lập. Điểm tự chấm phần I từ `eval.py grade` là **18/18 ý chấm được**, còn I4a và I4b chưa chấm được: không có prediction test cùng cấu hình trước/sau temperature scaling, và không có validation 5-crop đủ ba seed. Đây là điểm đề xuất, không phải điểm giảng viên đã xác nhận.
 
 ## Hạn chế và bước tiếp theo
 
 - Chỉ dùng một fold được chia ngẫu nhiên theo ảnh, không theo địa điểm. Điểm test có thể lạc quan khi gặp nông trại, mùa vụ hoặc ánh sáng mới.
 - Sàng backbone và ablation mới một seed. Cần chạy thêm seed cho những chênh lệch nhỏ, và đối chiếu các tag pretrained tương đương trước khi kết luận về kiến trúc.
 - Latency mới đo forward batch 1 trên Tesla T4; chưa đo batch lớn, tải ảnh/tiền xử lý, hay GPU/thiết bị robot đích.
+- Chưa lưu được bằng chứng kiểm tra loss ban đầu gần ln(9), overfit một batch nhỏ và ảnh sau augmentation trước khi train. EDA ảnh gốc và unit test loss/CutMix có kết quả, nhưng không thay thế ba kiểm tra pipeline này.
 - Một lượt final tương tác trước đó bị gián đoạn sau khi xuất test seed 0; kết quả báo cáo lấy từ **version final hoàn chỉnh** gồm ba seed, không chọn dựa trên kết quả của lượt gián đoạn. Đây là ngoại lệ so với quy tắc test một lần mỗi seed cần khai báo rõ.
 - Cần đánh giá độ lệch miền, nhiều fold và hiệu chuẩn trên dữ liệu triển khai trước khi đưa vào robot thực tế.
+
+## Phụ lục và tài liệu
+
+Danh sách cấu hình đầy đủ được lưu trong `logs/<exp_id>/seed<k>/config.json`, tag pretrained trong `pretrained_tag.json`, lịch sử trong `history.csv`. `results.xlsx` chứa toàn bộ bảng; `Summary` xếp hạng cấu hình theo macro-F1 validation và thêm dòng B01 làm mốc tham chiếu. Ablation dùng công thức nền trên **B03**, còn mã **T00** giữ cho mốc ResNet50 ở vòng final; sheet `Training` ghi rõ hai vai trò này.
+
+Dữ liệu và số tham khảo: Olsen et al. (2019), *DeepWeeds: A Multiclass Weed Species Image Dataset for Deep Learning*, Scientific Reports 9, 2058, DOI `10.1038/s41598-018-38343-3`; CSV gốc từ `github.com/AlexOlsen/DeepWeeds`. Định nghĩa metric và yêu cầu thực nghiệm theo `README.md`, `GUIDE.md`, `RUBRIC.md` của repo bài lab; `eval.py` được giữ nguyên.

@@ -25,3 +25,7 @@ python eval.py grade --final 'predictions/F01_seed*_test.csv' --baseline 'predic
 ```
 
 `eval_out/` luu ket qua chinh thuc da tinh lai. `inference_out/` luu nam phuong phap validation va latency. Do tre chi tinh forward tren GPU, khong tinh doc anh/tien xu ly. Bao cao ghi ro gioi han va mot luot final tuong tac da bi gian doan truoc version hoan chinh.
+
+## Gioi han da khai bao
+
+Chua co bang chung loss ban dau / overfit mot batch / anh sau augmentation truoc training, latency batch lon, va validation 5-crop du ba seed. Khong dien so lieu cho cac muc nay. Ba seed final va tat ca prediction test da duoc doi chieu voi CSV goc; cac gioi han va luot test bi gian doan duoc trinh bay trong `report.md` de giang vien danh gia.
